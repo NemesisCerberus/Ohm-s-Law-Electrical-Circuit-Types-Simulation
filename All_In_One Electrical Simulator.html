@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>All-in-One Circuit Simulator (Animated Fuse Blow)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f0f4f8;
+        }
+        .simulation-container {
+            max-width: 1100px;
+            margin: 2rem auto;
+            padding: 2rem;
+            background-color: #ffffff;
+            border-radius: 0.75rem;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
+            position: relative; /* Needed for screen flash positioning */
+        }
+
+        /* Screen Flash Overlay */
+        #screenFlashOverlay {
+            position: fixed; /* Cover the whole viewport */
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background-color: rgba(255, 255, 255, 0); /* Start transparent */
+            z-index: 9999; /* Ensure it's on top */
+            pointer-events: none; /* Allow clicks through when transparent */
+            opacity: 0;
+            transition: opacity 0.6s ease-out; /* Increased fade-out duration */
+        }
+        #screenFlashOverlay.flash-active {
+            background-color: rgba(255, 255, 255, 0.95); /* Slightly more opaque flash */
+            opacity: 1;
+            pointer-events: auto; /* Block clicks during flash (optional) */
+        }
+
+
+        /* Circuit Type Selection */
+        .circuit-selector {
+            display: flex; justify-content: center; gap: 1rem; margin-bottom: 2rem;
+        }
+        .selector-button {
+            padding: 0.6rem 1.2rem; border-radius: 0.375rem; font-weight: 500; cursor: pointer;
+            transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+            border: 1px solid #cbd5e1; background-color: #ffffff; color: #3b82f6;
+            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+        }
+        .selector-button:hover { background-color: #eff6ff; }
+        .selector-button.active {
+            background-color: #3b82f6; color: #ffffff; border-color: #3b82f6;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+        }
+
+        /* Diagram Area Styles */
+        .circuit-diagram-wrapper { margin-bottom: 2rem; }
+        .circuit-diagram {
+            display: flex; align-items: center; justify-content: center;
+            background-color: #dde6ed; padding: 20px; border-radius: 0.5rem;
+            min-height: 200px;
+            border: 2px solid #bdc9d5; color: #7f8c9a; text-align: center;
+            overflow: hidden;
+        }
+        .circuit-diagram svg.hidden { display: none; }
+        .circuit-diagram svg {
+             max-width: 100%; height: auto; max-height: 250px; overflow: visible;
+        }
+        .wire { stroke: #34495e; stroke-width: 2; }
+        .component-label-svg {
+            font-family: 'Inter', sans-serif; font-size: 10px; fill: #2c3e50; font-weight: 500;
+            text-anchor: middle;
+        }
+         .component-value-svg {
+            font-family: 'Inter', sans-serif; font-size: 9px; fill: #3b82f6; font-weight: 600;
+        }
+        .fuse-element { stroke: #34495e; stroke-width: 1.5; fill: #e0e0e0; }
+        .fuse-wire-inner { stroke: #95a5a6; stroke-width: 1.5; }
+        /* Applied to the <g> element of the fuse component */
+        g.fuse-blown .fuse-element,
+        g.fuse-blown .fuse-wire-inner {
+            stroke: #e74c3c !important;
+            fill: #fecaca !important;
+            stroke-width: 2px !important;
+        }
+        .switch-contact { fill: #34495e; }
+        .switch-lever {
+            stroke: #34495e; stroke-width: 2;
+            transition: transform 0.2s ease-in-out;
+            cursor: pointer;
+        }
+        .resistor-body { stroke: #34495e; stroke-width: 2; fill: none; }
+        .battery-plate-long { stroke: #34495e; stroke-width: 3; }
+        .battery-plate-short { stroke: #34495e; stroke-width: 3; }
+        .battery-terminal-line { stroke: #34495e; stroke-width: 2; }
+        .battery-terminal-text { font-size: 10px; fill: #34495e; }
+
+        /* Control Panel Styles */
+        .control-panel { background-color: #e9eff5; padding: 1.5rem; border-radius: 0.5rem; margin-bottom: 2rem; }
+        .control-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.5rem; }
+        .control-group { margin-bottom: 0; }
+        .control-group label, .switch-control-label { display: block; font-weight: 500; color: #2c3e50; margin-bottom: 0.5rem; font-size: 0.9em; }
+        .control-group .input-slider-group { display: flex; align-items: center; gap: 0.75rem; }
+        .control-group input[type="range"] { flex-grow: 1; cursor: pointer; accent-color: #3b82f6; }
+        .control-group input[type="number"] { width: 70px; padding: 0.3rem 0.5rem; border: 1px solid #bdc9d5; border-radius: 0.25rem; font-size: 0.9em; text-align: right; }
+        .control-group input[type=number]::-webkit-inner-spin-button, .control-group input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+        .control-group input[type=number] { -moz-appearance: textfield; }
+        .value-display { font-weight: 600; color: #3b82f6; font-size: 0.9em; }
+        .button-group { grid-column: 1 / -1; display: flex; gap: 1rem; margin-top: 1rem; }
+        .button { padding: 0.5rem 1rem; border-radius: 0.375rem; font-weight: 500; cursor: pointer; transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out; border: none; font-size: 0.9em; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); }
+        .button-primary { background-color: #3b82f6; color: white; } .button-primary:hover { background-color: #2563eb; }
+        .button-secondary { background-color: #6b7280; color: white; } .button-secondary:hover { background-color: #4b5563; }
+        .button-danger { background-color: #ef4444; color: white; } .button-danger:hover { background-color: #dc2626; }
+
+        /* Readouts Panel Styles */
+        .readouts-panel { background-color: #e9eff5; padding: 1.5rem; border-radius: 0.5rem; margin-bottom: 2rem; }
+        .readouts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.75rem 1.5rem; }
+        .readout-item { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem 0; border-bottom: 1px solid #d1d9e0; font-size: 0.9em; }
+        .readout-item:last-child { border-bottom: none; }
+        .readout-label { font-weight: 500; color: #2c3e50; margin-right: 8px; cursor: help; }
+        .readout-value { font-weight: 600; text-align: right; }
+        .current-value { color: #27ae60; } .voltage-value { color: #e67e22; } .resistance-value { color: #8e44ad; }
+        .power-value { color: #c0392b; } .fuse-status-ok { color: #2ecc71; } .fuse-status-blown { color: #e74c3c; font-weight: bold; }
+        .switch-status-closed { color: #27ae60; } .switch-status-open { color: #e67e22; }
+        .branch-current-value { color: #16a085; } .point-voltage-value { color: #3498db; }
+
+        /* Formula Box Styles */
+        .formula-box { padding: 1.5rem; background-color: #d6eaf8; border: 1px solid #aed6f1; border-radius: 0.5rem; text-align: center; }
+        .formula-box h3 { color: #1b4f72; } .formula-box p { color: #2874a6; font-size: 0.95em; }
+        .formula { font-weight: 600; margin: 0.5rem 0; display: block; }
+
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body class="bg-gray-100">
+    <div id="screenFlashOverlay"></div> <div class="simulation-container">
+        <header class="text-center mb-8">
+            <h1 class="text-3xl font-bold text-gray-800">All-in-One Circuit Simulator</h1>
+            <p class="text-gray-600 mt-1">Explore Simple, Series, and Parallel Circuits.</p>
+        </header>
+
+        <div class="circuit-selector">
+            <button id="selectSimpleBtn" class="selector-button active" data-circuit-type="simple">Simple Ohm's Law</button>
+            <button id="selectSeriesBtn" class="selector-button" data-circuit-type="series">Series Circuit</button>
+            <button id="selectParallelBtn" class="selector-button" data-circuit-type="parallel">Parallel Circuit</button>
+        </div>
+
+        <div class="circuit-diagram-wrapper">
+             <h2 class="text-xl font-semibold text-gray-700 mb-3">Circuit Diagram:</h2>
+             <div id="circuitDiagramContainer" class="circuit-diagram">
+                 <svg id="simpleDiagramSvg" viewBox="0 0 300 100" class="" xmlns="http://www.w3.org/2000/svg">
+                     <g transform="translate(20, 35)"> <text x="15" y="-15" class="component-label-svg">Battery</text>
+                         <line class="battery-terminal-line" x1="15" y1="0" x2="15" y2="5"/>
+                         <line class="battery-plate-long" x1="5" y1="5" x2="25" y2="5"/>
+                         <line class="battery-plate-short" x1="10" y1="12" x2="20" y2="12"/>
+                         <line class="battery-plate-long" x1="5" y1="19" x2="25" y2="19"/>
+                         <line class="battery-plate-short" x1="10" y1="26" x2="20" y2="26"/>
+                         <line class="battery-terminal-line" x1="15" y1="26" x2="15" y2="31"/>
+                         <text x="18" y="8" class="battery-terminal-text">+</text>
+                         <text x="18" y="34" class="battery-terminal-text">-</text>
+                         <text id="simple_diagram_voltageValue" x="35" y="18" class="component-value-svg">12V</text>
+                     </g>
+                     <g id="simple_fuseComponentSvg" transform="translate(80, 15)"> <text x="25" y="-5" class="component-label-svg">Fuse</text>
+                         <rect class="fuse-element" x="10" y="0" width="30" height="10" />
+                         <line class="fuse-wire-inner" x1="10" y1="5" x2="40" y2="5" />
+                         <line class="wire" x1="0" y1="5" x2="10" y2="5" />
+                         <line class="wire" x1="40" y1="5" x2="50" y2="5" />
+                     </g>
+                     <g id="simple_switchComponentSvg" transform="translate(150, 15)" class="switch-svg-group"> <text x="25" y="-5" class="component-label-svg">Switch</text>
+                         <circle class="switch-contact" cx="10" cy="5" r="3"/>
+                         <circle class="switch-contact" cx="40" cy="5" r="3"/>
+                         <line class="switch-lever" x1="10" y1="5" x2="40" y2="5" transform="rotate(-35 10 5)" /> <line class="wire" x1="0" y1="5" x2="10" y2="5" />
+                         <line class="wire" x1="40" y1="5" x2="50" y2="5" />
+                     </g>
+                     <g transform="translate(230, 15)"> <text x="0" y="-5" class="component-label-svg">Resistor</text>
+                          <polyline class="resistor-body" points="0,0 -5,5 5,10 -5,15 5,20 -5,25 5,30 0,30"/>
+                          <text id="simple_diagram_resistanceValue" x="15" y="15" class="component-value-svg" style="text-anchor: start;">10&#x2126;</text>
+                      </g>
+                     <line class="wire" x1="35" y1="35" x2="35" y2="20" /> <line class="wire" x1="35" y1="20" x2="80" y2="20" /> <line class="wire" x1="130" y1="20" x2="150" y2="20" /> <line class="wire" x1="200" y1="20" x2="230" y2="20" /> <line class="wire" x1="230" y1="45" x2="230" y2="85" /> <line class="wire" x1="230" y1="85" x2="35" y2="85" /> <line class="wire" x1="35" y1="85" x2="35" y2="66" /> </svg>
+
+                 <svg id="seriesDiagramSvg" viewBox="0 0 450 100" class="hidden" xmlns="http://www.w3.org/2000/svg">
+                     <g transform="translate(20, 25)">
+                         <text x="15" y="-5" class="component-label-svg">Battery</text>
+                         <line class="battery-terminal-line" x1="15" y1="0" x2="15" y2="5"/>
+                         <line class="battery-plate-long" x1="5" y1="5" x2="25" y2="5"/>
+                         <line class="battery-plate-short" x1="10" y1="12" x2="20" y2="12"/>
+                         <line class="battery-plate-long" x1="5" y1="19" x2="25" y2="19"/>
+                         <line class="battery-plate-short" x1="10" y1="26" x2="20" y2="26"/>
+                         <line class="battery-terminal-line" x1="15" y1="26" x2="15" y2="31"/>
+                         <text x="18" y="8" class="battery-terminal-text">+</text>
+                         <text x="18" y="34" class="battery-terminal-text">-</text>
+                         <text id="series_diagram_voltageValue" x="35" y="18" class="component-value-svg">12V</text>
+                     </g>
+                     <g id="series_fuseComponentSvg" transform="translate(80, 10)">
+                         <text x="25" y="-5" class="component-label-svg">Fuse</text>
+                         <rect class="fuse-element" x="10" y="0" width="30" height="10" />
+                         <line class="fuse-wire-inner" x1="10" y1="5" x2="40" y2="5" />
+                         <line class="wire" x1="0" y1="5" x2="10" y2="5" />
+                         <line class="wire" x1="40" y1="5" x2="50" y2="5" />
+                     </g>
+                      <g id="series_switchComponentSvg" transform="translate(150, 10)" class="switch-svg-group">
+                         <text x="25" y="-5" class="component-label-svg">Switch</text>
+                         <circle class="switch-contact" cx="10" cy="5" r="3"/>
+                         <circle class="switch-contact" cx="40" cy="5" r="3"/>
+                         <line class="switch-lever" x1="10" y1="5" x2="40" y2="5" transform="rotate(-35 10 5)" />
+                         <line class="wire" x1="0" y1="5" x2="10" y2="5" />
+                         <line class="wire" x1="40" y1="5" x2="50" y2="5" />
+                     </g>
+                     <g transform="translate(220, 10)">
+                          <text x="30" y="-5" class="component-label-svg">R1</text>
+                          <polyline class="resistor-body" points="0,5 5,0 15,10 25,0 35,10 45,0 55,5 60,5"/>
+                          <text id="series_diagram_resistance1Value" x="30" y="20" class="component-value-svg">10&#x2126;</text>
+                      </g>
+                      <g transform="translate(300, 10)">
+                          <text x="30" y="-5" class="component-label-svg">R2</text>
+                          <polyline class="resistor-body" points="0,5 5,0 15,10 25,0 35,10 45,0 55,5 60,5"/>
+                          <text id="series_diagram_resistance2Value" x="30" y="20" class="component-value-svg">20&#x2126;</text>
+                      </g>
+                      <g transform="translate(380, 10)">
+                          <text x="30" y="-5" class="component-label-svg">R3</text>
+                          <polyline class="resistor-body" points="0,5 5,0 15,10 25,0 35,10 45,0 55,5 60,5"/>
+                          <text id="series_diagram_resistance3Value" x="30" y="20" class="component-value-svg">30&#x2126;</text>
+                      </g>
+                     <line class="wire" x1="35" y1="40" x2="35" y2="15" /> <line class="wire" x1="35" y1="15" x2="80" y2="15" /> <line class="wire" x1="130" y1="15" x2="150" y2="15" /> <line class="wire" x1="200" y1="15" x2="220" y2="15" /> <line class="wire" x1="280" y1="15" x2="300" y2="15" /> <line class="wire" x1="360" y1="15" x2="380" y2="15" /> <path class="wire" d="M 440, 15 L 440, 80 L 35, 80 L 35, 56" fill="none"/> </svg>
+
+                 <svg id="parallelDiagramSvg" viewBox="0 0 400 180" class="hidden" xmlns="http://www.w3.org/2000/svg">
+                    <g transform="translate(20, 70)">
+                        <text x="15" y="-15" class="component-label-svg">Battery</text>
+                        <line class="battery-terminal-line" x1="15" y1="0" x2="15" y2="5"/>
+                        <line class="battery-plate-long" x1="5" y1="5" x2="25" y2="5"/>
+                        <line class="battery-plate-short" x1="10" y1="12" x2="20" y2="12"/>
+                        <line class="battery-plate-long" x1="5" y1="19" x2="25" y2="19"/>
+                        <line class="battery-plate-short" x1="10" y1="26" x2="20" y2="26"/>
+                        <line class="battery-terminal-line" x1="15" y1="26" x2="15" y2="31"/>
+                        <text x="18" y="8" class="battery-terminal-text">+</text>
+                        <text x="18" y="34" class="battery-terminal-text">-</text>
+                        <text id="parallel_diagram_voltageValue" x="35" y="18" class="component-value-svg">12V</text>
+                    </g>
+                    <line class="wire" x1="35" y1="70" x2="35" y2="20" /> <line class="wire" x1="35" y1="20" x2="80" y2="20" />
+                    <g id="parallel_fuseComponentSvg" transform="translate(80, 15)"> <text x="25" y="-10" class="component-label-svg">Fuse</text>
+                        <rect class="fuse-element" x="10" y="0" width="30" height="10" />
+                        <line class="fuse-wire-inner" x1="10" y1="5" x2="40" y2="5" />
+                        <line class="wire" x1="0" y1="5" x2="10" y2="5" />
+                        <line class="wire" x1="40" y1="5" x2="50" y2="5" />
+                    </g>
+                    <line class="wire" x1="130" y1="20" x2="150" y2="20" />
+                    <g id="parallel_switchComponentSvg" transform="translate(150, 15)" class="switch-svg-group"> <text x="25" y="-10" class="component-label-svg">Switch</text>
+                        <circle class="switch-contact" cx="10" cy="5" r="3"/>
+                        <circle class="switch-contact" cx="40" cy="5" r="3"/>
+                        <line class="switch-lever" x1="10" y1="5" x2="40" y2="5" transform="rotate(-35 10 5)" />
+                        <line class="wire" x1="0" y1="5" x2="10" y2="5" />
+                        <line class="wire" x1="40" y1="5" x2="50" y2="5" />
+                    </g>
+                    <line class="wire" x1="200" y1="20" x2="370" y2="20" />
+                    <g transform="translate(250, 20)"> <line class="wire" x1="0" y1="0" x2="0" y2="25" /> <g transform="translate(0, 25)"> <text x="0" y="-5" class="component-label-svg">R1</text>
+                            <polyline class="resistor-body" points="0,0 -5,5 5,10 -5,15 5,20 -5,25 5,30 0,30"/> <text id="parallel_diagram_resistance1Value" x="15" y="15" class="component-value-svg" style="text-anchor: start;">10&#x2126;</text>
+                        </g>
+                        <line class="wire" x1="0" y1="55" x2="0" y2="140" /> </g>
+                    <g transform="translate(300, 20)">
+                        <line class="wire" x1="0" y1="0" x2="0" y2="25" />
+                        <g transform="translate(0, 25)">
+                            <text x="0" y="-5" class="component-label-svg">R2</text>
+                            <polyline class="resistor-body" points="0,0 -5,5 5,10 -5,15 5,20 -5,25 5,30 0,30"/>
+                            <text id="parallel_diagram_resistance2Value" x="15" y="15" class="component-value-svg" style="text-anchor: start;">20&#x2126;</text>
+                        </g>
+                        <line class="wire" x1="0" y1="55" x2="0" y2="140" />
+                    </g>
+                    <g transform="translate(350, 20)">
+                        <line class="wire" x1="0" y1="0" x2="0" y2="25" />
+                        <g transform="translate(0, 25)">
+                            <text x="0" y="-5" class="component-label-svg">R3</text>
+                            <polyline class="resistor-body" points="0,0 -5,5 5,10 -5,15 5,20 -5,25 5,30 0,30"/>
+                            <text id="parallel_diagram_resistance3Value" x="15" y="15" class="component-value-svg" style="text-anchor: start;">30&#x2126;</text>
+                        </g>
+                        <line class="wire" x1="0" y1="55" x2="0" y2="140" />
+                    </g>
+                    <line class="wire" x1="250" y1="160" x2="350" y2="160" /> <line class="wire" x1="35" y1="101" x2="35" y2="160" /> <line class="wire" x1="35" y1="160" x2="250" y2="160" /> </svg>
+             </div>
+        </div>
+
+        <div id="controlsContainer">
+             <div id="simpleControls" class="control-panel hidden">
+                <h2 class="text-xl font-semibold text-gray-700 mb-4">Adjust Parameters (Simple Circuit):</h2>
+                <div class="control-grid">
+                    <div class="control-group">
+                        <label>Source Voltage (V<sub>S</sub>): <span id="simple_voltageValueDisplay" class="value-display">12.0</span> V</label>
+                        <div class="input-slider-group">
+                            <input type="range" id="simple_voltageSlider" min="1" max="24" value="12" step="0.5">
+                            <input type="number" id="simple_voltageInput" min="1" max="24" value="12" step="0.5">
+                        </div>
+                    </div>
+                    <div class="control-group">
+                        <label>Resistance (R): <span id="simple_resistanceValueDisplay" class="value-display">10</span> &Omega;</label>
+                         <div class="input-slider-group">
+                            <input type="range" id="simple_resistanceSlider" min="1" max="100" value="10" step="1">
+                            <input type="number" id="simple_resistanceInput" min="1" max="100" value="10" step="1">
+                         </div>
+                    </div>
+                    <div class="control-group">
+                        <label>Fuse Rating (A): <span id="simple_fuseRatingValueDisplay" class="value-display">2.0</span> A</label>
+                        <div class="input-slider-group">
+                            <input type="range" id="simple_fuseRatingSlider" min="0.1" max="10" value="2" step="0.1">
+                            <input type="number" id="simple_fuseRatingInput" min="0.1" max="10" value="2" step="0.1">
+                        </div>
+                    </div>
+                    <div class="button-group">
+                        <button id="simple_switchToggleButton" class="button button-primary flex-grow">Close Switch</button>
+                        <button id="simple_resetButton" class="button button-secondary">Reset Defaults</button>
+                    </div>
+                </div>
+            </div>
+            <div id="seriesControls" class="control-panel hidden">
+                 <h2 class="text-xl font-semibold text-gray-700 mb-4">Adjust Parameters (Series Circuit):</h2>
+                 <div class="control-grid">
+                     <div class="control-group">
+                        <label>Source Voltage (V<sub>S</sub>): <span id="series_voltageValueDisplay" class="value-display">12.0</span> V</label>
+                        <div class="input-slider-group">
+                            <input type="range" id="series_voltageSlider" min="1" max="48" value="12" step="0.5">
+                            <input type="number" id="series_voltageInput" min="1" max="48" value="12" step="0.5">
+                        </div>
+                    </div>
+                    <div class="control-group">
+                        <label>Resistor 1 (R<sub>1</sub>): <span id="series_resistance1ValueDisplay" class="value-display">10</span> &Omega;</label>
+                        <div class="input-slider-group">
+                            <input type="range" id="series_resistance1Slider" min="1" max="100" value="10" step="1">
+                            <input type="number" id="series_resistance1Input" min="1" max="100" value="10" step="1">
+                        </div>
+                    </div>
+                    <div class="control-group">
+                        <label>Resistor 2 (R<sub>2</sub>): <span id="series_resistance2ValueDisplay" class="value-display">20</span> &Omega;</label>
+                        <div class="input-slider-group">
+                            <input type="range" id="series_resistance2Slider" min="1" max="100" value="20" step="1">
+                            <input type="number" id="series_resistance2Input" min="1" max="100" value="20" step="1">
+                        </div>
+                    </div>
+                    <div class="control-group">
+                        <label>Resistor 3 (R<sub>3</sub>): <span id="series_resistance3ValueDisplay" class="value-display">30</span> &Omega;</label>
+                        <div class="input-slider-group">
+                            <input type="range" id="series_resistance3Slider" min="1" max="100" value="30" step="1">
+                            <input type="number" id="series_resistance3Input" min="1" max="100" value="30" step="1">
+                        </div>
+                    </div>
+                    <div class="control-group">
+                        <label>Fuse Rating (A): <span id="series_fuseRatingValueDisplay" class="value-display">1.0</span> A</label>
+                        <div class="input-slider-group">
+                            <input type="range" id="series_fuseRatingSlider" min="0.1" max="5" value="1" step="0.1">
+                            <input type="number" id="series_fuseRatingInput" min="0.1" max="5" value="1" step="0.1">
+                        </div>
+                    </div>
+                    <div class="button-group">
+                         <button id="series_switchToggleButton" class="button button-primary flex-grow">Close Switch</button>
+                         <button id="series_resetButton" class="button button-secondary">Reset Defaults</button>
+                    </div>
+                 </div>
+            </div>
+            <div id="parallelControls" class="control-panel hidden">
+                 <h2 class="text-xl font-semibold text-gray-700 mb-4">Adjust Parameters (Parallel Circuit):</h2>
+                 <div class="control-grid">
+                     <div class="control-group">
+                        <label>Source Voltage (V<sub>S</sub>): <span id="parallel_voltageValueDisplay" class="value-display">12.0</span> V</label>
+                        <div class="input-slider-group">
+                            <input type="range" id="parallel_voltageSlider" min="1" max="48" value="12" step="0.5">
+                            <input type="number" id="parallel_voltageInput" min="1" max="48" value="12" step="0.5">
+                        </div>
+                    </div>
+                    <div class="control-group">
+                        <label>Resistor 1 (R<sub>1</sub>): <span id="parallel_resistance1ValueDisplay" class="value-display">10</span> &Omega;</label>
+                         <div class="input-slider-group">
+                            <input type="range" id="parallel_resistance1Slider" min="1" max="100" value="10" step="1">
+                            <input type="number" id="parallel_resistance1Input" min="1" max="100" value="10" step="1">
+                         </div>
+                    </div>
+                    <div class="control-group">
+                        <label>Resistor 2 (R<sub>2</sub>): <span id="parallel_resistance2ValueDisplay" class="value-display">20</span> &Omega;</label>
+                        <div class="input-slider-group">
+                            <input type="range" id="parallel_resistance2Slider" min="1" max="100" value="20" step="1">
+                            <input type="number" id="parallel_resistance2Input" min="1" max="100" value="20" step="1">
+                        </div>
+                    </div>
+                    <div class="control-group">
+                        <label>Resistor 3 (R<sub>3</sub>): <span id="parallel_resistance3ValueDisplay" class="value-display">30</span> &Omega;</label>
+                        <div class="input-slider-group">
+                            <input type="range" id="parallel_resistance3Slider" min="1" max="100" value="30" step="1">
+                            <input type="number" id="parallel_resistance3Input" min="1" max="100" value="30" step="1">
+                        </div>
+                    </div>
+                    <div class="control-group">
+                        <label>Fuse Rating (A): <span id="parallel_fuseRatingValueDisplay" class="value-display">5.0</span> A</label>
+                        <div class="input-slider-group">
+                            <input type="range" id="parallel_fuseRatingSlider" min="0.1" max="10" value="5" step="0.1">
+                            <input type="number" id="parallel_fuseRatingInput" min="0.1" max="10" value="5" step="0.1">
+                        </div>
+                    </div>
+                    <div class="button-group">
+                        <button id="parallel_switchToggleButton" class="button button-primary flex-grow">Close Switch</button>
+                        <button id="parallel_resetButton" class="button button-secondary">Reset Defaults</button>
+                    </div>
+                 </div>
+            </div>
+        </div>
+
+        <div id="readoutsContainer">
+             <div id="simpleReadouts" class="readouts-panel hidden">
+                <h2 class="text-xl font-semibold text-gray-700 mb-3">Live Values (Simple Circuit):</h2>
+                <div class="readouts-grid">
+                    <div class="readout-item">
+                        <span class="readout-label" title="Indicates if the main circuit switch is Open or Closed.">Switch:</span>
+                        <span id="simple_switchStatus" class="readout-value switch-status-open">OPEN</span>
+                    </div>
+                     <div class="readout-item">
+                        <span class="readout-label" title="Indicates if the fuse is intact (OK) or has blown due to overcurrent.">Fuse:</span>
+                        <span id="simple_fuseStatusDisplay" class="readout-value fuse-status-ok">OK</span>
+                    </div>
+                     <div class="readout-item">
+                        <span class="readout-label" title="The total resistance in the circuit (just R1 in this case).">Total R (R<sub>T</sub>):</span>
+                        <span id="simple_liveTotalResistance" class="readout-value resistance-value">10 &Omega;</span>
+                    </div>
+                    <div class="readout-item">
+                        <span class="readout-label" title="The total current drawn from the voltage source (I = VS / R).">Total I (I<sub>T</sub>):</span>
+                        <span id="simple_liveTotalCurrent" class="readout-value current-value">0.00 A</span>
+                    </div>
+                    <div class="readout-item">
+                        <span class="readout-label" title="Voltage across the single resistor (equal to VS if switch closed and fuse OK).">V Drop R:</span>
+                        <span id="simple_liveVoltageDropR1" class="readout-value voltage-value">0.00 V</span>
+                    </div>
+                    <div class="readout-item">
+                        <span class="readout-label" title="Total power delivered by the source (P = VS * IT).">Total Power (P<sub>T</sub>):</span>
+                        <span id="simple_liveTotalPower" class="readout-value power-value">0.00 W</span>
+                    </div>
+                     <div class="readout-item">
+                        <span class="readout-label" title="Power dissipated by the resistor (P = V_Drop² / R).">Power R:</span>
+                        <span id="simple_livePowerR1" class="readout-value power-value">0.00 W</span>
+                    </div>
+                </div>
+            </div>
+            <div id="seriesReadouts" class="readouts-panel hidden">
+                 <h2 class="text-xl font-semibold text-gray-700 mb-3">Live Values (Series Circuit):</h2>
+                 <div class="readouts-grid">
+                    <div class="readout-item"> <span class="readout-label" title="Indicates if the main circuit switch is Open or Closed.">Switch:</span> <span id="series_switchStatus" class="readout-value switch-status-open">OPEN</span> </div>
+                    <div class="readout-item"> <span class="readout-label" title="Indicates if the fuse is intact (OK) or has blown due to overcurrent.">Fuse:</span> <span id="series_fuseStatusDisplay" class="readout-value fuse-status-ok">OK</span> </div>
+                    <div class="readout-item"> <span class="readout-label" title="The equivalent total resistance of the series components (RT = R1 + R2 + R3).">Total R (R<sub>T</sub>):</span> <span id="series_liveTotalResistance" class="readout-value resistance-value">60 &Omega;</span> </div>
+                    <div class="readout-item"> <span class="readout-label" title="The total current drawn from the source (IT = VS / RT), same through all components.">Total I (I<sub>T</sub>):</span> <span id="series_liveTotalCurrent" class="readout-value current-value">0.00 A</span> </div>
+                    <div class="readout-item"> <span class="readout-label" title="Voltage drop across Resistor 1 (V = IT * R1).">V Drop R<sub>1</sub>:</span> <span id="series_liveVoltageDropR1" class="readout-value voltage-value">0.00 V</span> </div>
+                    <div class="readout-item"> <span class="readout-label" title="Voltage drop across Resistor 2 (V = IT * R2).">V Drop R<sub>2</sub>:</span> <span id="series_liveVoltageDropR2" class="readout-value voltage-value">0.00 V</span> </div>
+                    <div class="readout-item"> <span class="readout-label" title="Voltage drop across Resistor 3 (V = IT * R3).">V Drop R<sub>3</sub>:</span> <span id="series_liveVoltageDropR3" class="readout-value voltage-value">0.00 V</span> </div>
+                    <div class="readout-item"> <span class="readout-label" title="Voltage at Battery Positive relative to Negative.">V at Bat (+):</span> <span id="series_liveVoltagePointA" class="readout-value point-voltage-value">12.0 V</span> </div>
+                    <div class="readout-item"> <span class="readout-label" title="Voltage after Fuse relative to Negative.">V after Fuse:</span> <span id="series_liveVoltagePointB" class="readout-value point-voltage-value">12.0 V</span> </div>
+                    <div class="readout-item"> <span class="readout-label" title="Voltage after Switch relative to Negative.">V after Switch:</span> <span id="series_liveVoltagePointC" class="readout-value point-voltage-value">0.0 V</span> </div>
+                    <div class="readout-item"> <span class="readout-label" title="Voltage after R1 relative to Negative.">V after R<sub>1</sub>:</span> <span id="series_liveVoltagePointD" class="readout-value point-voltage-value">0.0 V</span> </div>
+                    <div class="readout-item"> <span class="readout-label" title="Voltage after R2 relative to Negative.">V after R<sub>2</sub>:</span> <span id="series_liveVoltagePointE" class="readout-value point-voltage-value">0.0 V</span> </div>
+                    <div class="readout-item"> <span class="readout-label" title="Voltage after R3 relative to Negative (should be near 0V).">V after R<sub>3</sub>:</span> <span id="series_liveVoltagePointF" class="readout-value point-voltage-value">0.0 V</span> </div>
+                    <div class="readout-item"> <span class="readout-label" title="Total power delivered by the source (P = VS * IT).">Total Power (P<sub>T</sub>):</span> <span id="series_liveTotalPower" class="readout-value power-value">0.00 W</span> </div>
+                 </div>
+            </div>
+            <div id="parallelReadouts" class="readouts-panel hidden">
+                 <h2 class="text-xl font-semibold text-gray-700 mb-3">Live Values (Parallel Circuit):</h2>
+                 <div class="readouts-grid">
+                    <div class="readout-item"> <span class="readout-label" title="Indicates if the main circuit switch is Open or Closed.">Switch:</span> <span id="parallel_switchStatus" class="readout-value switch-status-open">OPEN</span> </div>
+                    <div class="readout-item"> <span class="readout-label" title="Indicates if the fuse is intact (OK) or has blown due to overcurrent.">Fuse:</span> <span id="parallel_fuseStatusDisplay" class="readout-value fuse-status-ok">OK</span> </div>
+                    <div class="readout-item"> <span class="readout-label" title="The equivalent total resistance of the parallel branches (1/RT = 1/R1 + 1/R2 + 1/R3).">Total R (R<sub>T</sub>):</span> <span id="parallel_liveTotalResistance" class="readout-value resistance-value">5.45 &Omega;</span> </div>
+                    <div class="readout-item"> <span class="readout-label" title="The total current drawn from the voltage source (IT = VS / RT).">Total I (I<sub>T</sub>):</span> <span id="parallel_liveTotalCurrent" class="readout-value current-value">0.00 A</span> </div>
+                    <div class="readout-item"> <span class="readout-label" title="The voltage across each of the parallel branches (equal to VS if switch is closed and fuse is OK).">V Across Branches:</span> <span id="parallel_liveVoltageAcrossBranches" class="readout-value voltage-value">0.00 V</span> </div>
+                    <div class="readout-item"> <span class="readout-label" title="Current flowing only through Resistor 1 (I = V_Branches / R1).">I thru R<sub>1</sub>:</span> <span id="parallel_liveCurrentR1" class="readout-value branch-current-value">0.00 A</span> </div>
+                    <div class="readout-item"> <span class="readout-label" title="Current flowing only through Resistor 2 (I = V_Branches / R2).">I thru R<sub>2</sub>:</span> <span id="parallel_liveCurrentR2" class="readout-value branch-current-value">0.00 A</span> </div>
+                    <div class="readout-item"> <span class="readout-label" title="Current flowing only through Resistor 3 (I = V_Branches / R3).">I thru R<sub>3</sub>:</span> <span id="parallel_liveCurrentR3" class="readout-value branch-current-value">0.00 A</span> </div>
+                    <div class="readout-item"> <span class="readout-label" title="Total power delivered by the source (P = VS * IT).">Total Power (P<sub>T</sub>):</span> <span id="parallel_liveTotalPower" class="readout-value power-value">0.00 W</span> </div>
+                    <div class="readout-item"> <span class="readout-label" title="Power dissipated by Resistor 1 (P = V_Branches² / R1).">Power R<sub>1</sub>:</span> <span id="parallel_livePowerR1" class="readout-value power-value">0.00 W</span> </div>
+                    <div class="readout-item"> <span class="readout-label" title="Power dissipated by Resistor 2 (P = V_Branches² / R2).">Power R<sub>2</sub>:</span> <span id="parallel_livePowerR2" class="readout-value power-value">0.00 W</span> </div>
+                    <div class="readout-item"> <span class="readout-label" title="Power dissipated by Resistor 3 (P = V_Branches² / R3).">Power R<sub>3</sub>:</span> <span id="parallel_livePowerR3" class="readout-value power-value">0.00 W</span> </div>
+                 </div>
+            </div>
+        </div>
+
+        <div id="formulaBox" class="formula-box">
+            </div>
+    </div>
+
+    <script>
+        // --- Circuit Type Enum ---
+        const CircuitType = { SIMPLE: 'simple', SERIES: 'series', PARALLEL: 'parallel' };
+
+        // --- Default Values ---
+        const defaults = {
+            [CircuitType.SIMPLE]: { voltage: 12.0, r1: 10, fuseRating: 2.0, switchClosed: false },
+            [CircuitType.SERIES]: { voltage: 12.0, r1: 10, r2: 20, r3: 30, fuseRating: 1.0, switchClosed: false },
+            [CircuitType.PARALLEL]: { voltage: 12.0, r1: 10, r2: 20, r3: 30, fuseRating: 5.0, switchClosed: false }
+        };
+
+        // --- Formula Box Content ---
+         const formulaContent = {
+            [CircuitType.SIMPLE]: `<h3 class="text-xl font-semibold mb-2">Ohm's Law</h3><p class="text-lg">Defines the relationship between voltage (V), current (I), and resistance (R).</p><p class="text-2xl font-bold my-2">V = I × R</p><p>Current (I) = Voltage (V) / Resistance (R)</p><p>Power (P) = V × I = I² × R = V² / R</p>`,
+            [CircuitType.SERIES]: `<h3 class="text-xl font-semibold mb-2">Series Circuit Formulas</h3><p>In a series circuit:</p><span class="formula">Total Resistance: R<sub>T</sub> = R<sub>1</sub> + R<sub>2</sub> + R<sub>3</sub> + ...</span><span class="formula">Total Current: I<sub>T</sub> = V<sub>S</sub> / R<sub>T</sub> (Same everywhere)</span><span class="formula">Voltage Drop (Ohm's Law): V<sub>R</sub> = I<sub>T</sub> × R</span><span class="formula">Kirchhoff's Voltage Law: V<sub>S</sub> = V<sub>R1</sub> + V<sub>R2</sub> + V<sub>R3</sub> + ...</span><span class="formula">Power: P = V × I = I² × R = V² / R</span>`,
+            [CircuitType.PARALLEL]: `<h3 class="text-xl font-semibold mb-2">Parallel Circuit Formulas</h3><p>In a parallel circuit:</p><span class="formula">Total Resistance: 1/R<sub>T</sub> = 1/R<sub>1</sub> + 1/R<sub>2</sub> + 1/R<sub>3</sub> + ...</span><span class="formula">Voltage: V<sub>S</sub> = V<sub>R1</sub> = V<sub>R2</sub> = V<sub>R3</sub> = ... (Same across branches)</span><span class="formula">Branch Current (Ohm's Law): I<sub>Rx</sub> = V<sub>Branches</sub> / R<sub>x</sub></span><span class="formula">Kirchhoff's Current Law: I<sub>T</sub> = I<sub>R1</sub> + I<sub>R2</sub> + I<sub>R3</sub> + ...</span><span class="formula">Power: P = V × I = I² × R = V² / R</span>`
+        };
+
+        // --- State Variables ---
+        let currentCircuitType = CircuitType.SIMPLE;
+        let state = {
+            [CircuitType.SIMPLE]: { ...defaults[CircuitType.SIMPLE] },
+            [CircuitType.SERIES]: { ...defaults[CircuitType.SERIES] },
+            [CircuitType.PARALLEL]: { ...defaults[CircuitType.PARALLEL] }
+        };
+
+        // --- DOM Element References ---
+        const screenFlashOverlay = document.getElementById('screenFlashOverlay');
+        const formulaBox = document.getElementById('formulaBox');
+        const circuitDiagramContainer = document.getElementById('circuitDiagramContainer');
+        const circuitSelectorButtons = {
+            [CircuitType.SIMPLE]: document.getElementById('selectSimpleBtn'),
+            [CircuitType.SERIES]: document.getElementById('selectSeriesBtn'),
+            [CircuitType.PARALLEL]: document.getElementById('selectParallelBtn')
+        };
+        const controlPanels = {
+            [CircuitType.SIMPLE]: document.getElementById('simpleControls'),
+            [CircuitType.SERIES]: document.getElementById('seriesControls'),
+            [CircuitType.PARALLEL]: document.getElementById('parallelControls')
+        };
+        const readoutPanels = {
+            [CircuitType.SIMPLE]: document.getElementById('simpleReadouts'),
+            [CircuitType.SERIES]: document.getElementById('seriesReadouts'),
+            [CircuitType.PARALLEL]: document.getElementById('parallelReadouts')
+        };
+         const diagramSvgs = {
+            [CircuitType.SIMPLE]: document.getElementById('simpleDiagramSvg'),
+            [CircuitType.SERIES]: document.getElementById('seriesDiagramSvg'),
+            [CircuitType.PARALLEL]: document.getElementById('parallelDiagramSvg')
+        };
+
+        // --- Utility Functions ---
+        function getElement(id) { return document.getElementById(id); }
+        function formatValue(value, precision, unit) {
+            if (value === Infinity) return `\u221E ${unit}`;
+            if (isNaN(value)) return `NaN ${unit}`;
+            return `${value.toFixed(precision)} ${unit}`;
+        }
+
+        // --- Core Logic Functions ---
+        function switchCircuitType(newType) {
+            if (!CircuitType[newType.toUpperCase()] || newType === currentCircuitType) return;
+            currentCircuitType = newType;
+            Object.values(circuitSelectorButtons).forEach(btn => btn.classList.remove('active'));
+            circuitSelectorButtons[newType].classList.add('active');
+            Object.values(diagramSvgs).forEach(svg => svg.classList.add('hidden'));
+            diagramSvgs[newType].classList.remove('hidden');
+            Object.values(controlPanels).forEach(panel => panel.classList.add('hidden'));
+            Object.values(readoutPanels).forEach(panel => panel.classList.add('hidden'));
+            controlPanels[newType].classList.remove('hidden');
+            readoutPanels[newType].classList.remove('hidden');
+            formulaBox.innerHTML = formulaContent[newType];
+            resetToDefaults();
+        }
+
+        function resetToDefaults() {
+            state[currentCircuitType] = { ...defaults[currentCircuitType] };
+            updateValues();
+        }
+
+        function updateSwitchVisuals() {
+             const typeState = state[currentCircuitType];
+             const switchButton = getElement(`${currentCircuitType}_switchToggleButton`);
+             const switchStatusDisplay = getElement(`${currentCircuitType}_switchStatus`);
+             const switchSvgGroup = getElement(`${currentCircuitType}_switchComponentSvg`);
+             const switchLever = switchSvgGroup?.querySelector('.switch-lever');
+             if (!switchButton || !switchStatusDisplay || !switchLever) return;
+             // Corrected: Lever should point to the second contact (x=40, y=5) when closed (0 deg rotation).
+             const rotation = typeState.switchClosed ? 0 : -45; // 0 for closed, -45 for open
+             switchLever.setAttribute('transform', `rotate(${rotation} 10 5)`);
+
+             if (typeState.switchClosed) {
+                switchButton.textContent = 'Open Switch';
+                switchButton.classList.replace('bg-blue-500', 'bg-red-500');
+                switchButton.classList.replace('hover:bg-blue-600', 'hover:bg-red-600');
+                switchStatusDisplay.textContent = "CLOSED";
+                switchStatusDisplay.className = 'readout-value switch-status-closed';
+            } else {
+                switchButton.textContent = 'Close Switch';
+                switchButton.classList.replace('bg-red-500', 'bg-blue-500');
+                switchButton.classList.replace('hover:bg-red-600', 'hover:bg-blue-600');
+                switchStatusDisplay.textContent = "OPEN";
+                switchStatusDisplay.className = 'readout-value switch-status-open';
+            }
+        }
+
+        let flashTimeout = null; // To manage the flash timeout
+        function triggerScreenFlash() {
+            if (flashTimeout) clearTimeout(flashTimeout);
+            screenFlashOverlay.classList.add('flash-active');
+            setTimeout(() => {
+                screenFlashOverlay.style.opacity = '0';
+                flashTimeout = setTimeout(() => {
+                    screenFlashOverlay.classList.remove('flash-active');
+                    screenFlashOverlay.style.opacity = '0';
+                }, 600); // Match CSS transition duration (0.6s)
+            }, 150); // Duration of the "bright" flash (increased from 50ms)
+        }
+
+
+         function updateFuseVisual(type, isBlown) {
+             const fuseSvgGroup = getElement(`${type}_fuseComponentSvg`);
+             if (!fuseSvgGroup) return;
+
+             const wasBlown = fuseSvgGroup.classList.contains('fuse-blown');
+
+             if (isBlown) {
+                 fuseSvgGroup.classList.add('fuse-blown');
+                 if (!wasBlown) { // Only flash if it just blew
+                     triggerScreenFlash();
+                 }
+             } else {
+                 fuseSvgGroup.classList.remove('fuse-blown');
+             }
+         }
+
+         function updateDiagramValues(type, s) {
+             getElement(`${type}_diagram_voltageValue`).textContent = `${s.voltage.toFixed(0)}V`;
+             if (type === CircuitType.SIMPLE) {
+                 getElement(`${type}_diagram_resistanceValue`).textContent = `${s.r1.toFixed(0)}\u2126`;
+             } else {
+                 getElement(`${type}_diagram_resistance1Value`).textContent = `${s.r1.toFixed(0)}\u2126`;
+                 getElement(`${type}_diagram_resistance2Value`).textContent = `${s.r2.toFixed(0)}\u2126`;
+                 getElement(`${type}_diagram_resistance3Value`).textContent = `${s.r3.toFixed(0)}\u2126`;
+             }
+         }
+
+        function updateValues() {
+            const type = currentCircuitType;
+            const typeState = state[type];
+            syncControlsToState(type);
+            let results = {};
+            switch (type) {
+                case CircuitType.SIMPLE: results = calculateSimple(typeState); break;
+                case CircuitType.SERIES: results = calculateSeries(typeState); break;
+                case CircuitType.PARALLEL: results = calculateParallel(typeState); break;
+            }
+            updateReadouts(type, results);
+            updateSwitchVisuals();
+            updateFuseVisual(type, results.isFuseBlown);
+            updateDiagramValues(type, typeState);
+        }
+
+         function syncControlsToState(type) {
+            const typeState = state[type];
+            getElement(`${type}_voltageSlider`).value = typeState.voltage;
+            getElement(`${type}_voltageInput`).value = typeState.voltage;
+            getElement(`${type}_voltageValueDisplay`).textContent = typeState.voltage.toFixed(1);
+            getElement(`${type}_fuseRatingSlider`).value = typeState.fuseRating;
+            getElement(`${type}_fuseRatingInput`).value = typeState.fuseRating;
+            getElement(`${type}_fuseRatingValueDisplay`).textContent = typeState.fuseRating.toFixed(1);
+            if (type === CircuitType.SIMPLE) {
+                getElement(`${type}_resistanceSlider`).value = typeState.r1;
+                getElement(`${type}_resistanceInput`).value = typeState.r1;
+                getElement(`${type}_resistanceValueDisplay`).textContent = typeState.r1.toFixed(0);
+            } else {
+                 getElement(`${type}_resistance1Slider`).value = typeState.r1;
+                 getElement(`${type}_resistance1Input`).value = typeState.r1;
+                 getElement(`${type}_resistance1ValueDisplay`).textContent = typeState.r1.toFixed(0);
+                 getElement(`${type}_resistance2Slider`).value = typeState.r2;
+                 getElement(`${type}_resistance2Input`).value = typeState.r2;
+                 getElement(`${type}_resistance2ValueDisplay`).textContent = typeState.r2.toFixed(0);
+                 getElement(`${type}_resistance3Slider`).value = typeState.r3;
+                 getElement(`${type}_resistance3Input`).value = typeState.r3;
+                 getElement(`${type}_resistance3ValueDisplay`).textContent = typeState.r3.toFixed(0);
+            }
+         }
+
+        // --- Calculation Functions ---
+        function calculateSimple(s) {
+            let rT = (s.r1 > 0) ? s.r1 : Infinity;
+            let potentialCurrent = (s.switchClosed && rT > 0 && rT !== Infinity) ? s.voltage / rT : 0;
+            if (s.switchClosed && rT <= 0) potentialCurrent = Infinity;
+            let blown = potentialCurrent > s.fuseRating;
+            let current = (!s.switchClosed || blown) ? 0 : potentialCurrent;
+            let vDropR1 = (current !== Infinity && current > 0) ? current * s.r1 : 0;
+            let pTotal = (current !== Infinity && current > 0) ? s.voltage * current : 0;
+            let pR1 = (current !== Infinity && current > 0) ? vDropR1 * current : 0;
+            return { isFuseBlown: blown, totalResistance: rT, totalCurrent: current, vDropR1: vDropR1, totalPower: pTotal, powerR1: pR1 };
+         }
+        function calculateSeries(s) {
+            let rT = (s.r1 > 0 ? s.r1 : 0) + (s.r2 > 0 ? s.r2 : 0) + (s.r3 > 0 ? s.r3 : 0);
+            if (rT <= 0) rT = Infinity;
+            let potentialCurrent = (s.switchClosed && rT > 0 && rT !== Infinity) ? s.voltage / rT : 0;
+            if (s.switchClosed && rT <= 0) potentialCurrent = Infinity;
+            let blown = potentialCurrent > s.fuseRating;
+            let current = (!s.switchClosed || blown) ? 0 : potentialCurrent;
+            let vDropR1 = (current !== Infinity && current > 0 && s.r1 > 0) ? current * s.r1 : 0;
+            let vDropR2 = (current !== Infinity && current > 0 && s.r2 > 0) ? current * s.r2 : 0;
+            let vDropR3 = (current !== Infinity && current > 0 && s.r3 > 0) ? current * s.r3 : 0;
+            let vA = s.voltage;
+            let vB = (!s.switchClosed || blown) ? 0 : s.voltage;
+            let vC = (!s.switchClosed || blown) ? 0 : s.voltage;
+            let vD = vC - vDropR1; let vE = vD - vDropR2; let vF = vE - vDropR3;
+            let pTotal = (current !== Infinity && current > 0) ? s.voltage * current : 0;
+            return { isFuseBlown: blown, totalResistance: rT, totalCurrent: current, vDropR1, vDropR2, vDropR3, vPointA: vA, vPointB: vB, vPointC: vC, vPointD: vD, vPointE: vE, vPointF: vF, totalPower: pTotal };
+         }
+        function calculateParallel(s) {
+            let sumRecip = 0;
+            if (s.r1 > 0) sumRecip += 1 / s.r1; if (s.r2 > 0) sumRecip += 1 / s.r2; if (s.r3 > 0) sumRecip += 1 / s.r3;
+            let rT = (sumRecip > 0) ? (1 / sumRecip) : Infinity;
+            let potentialCurrent = (s.switchClosed && rT > 0 && rT !== Infinity) ? s.voltage / rT : 0;
+            if (s.switchClosed && rT <= 0) potentialCurrent = Infinity;
+            let blown = potentialCurrent > s.fuseRating;
+            let current = (!s.switchClosed || blown) ? 0 : potentialCurrent;
+            let vBranches = (!s.switchClosed || blown) ? 0 : s.voltage;
+            let iR1 = (vBranches > 0 && s.r1 > 0) ? vBranches / s.r1 : 0;
+            let iR2 = (vBranches > 0 && s.r2 > 0) ? vBranches / s.r2 : 0;
+            let iR3 = (vBranches > 0 && s.r3 > 0) ? vBranches / s.r3 : 0;
+            let pTotal = (current !== Infinity && current > 0) ? s.voltage * current : 0;
+            let pR1 = (vBranches > 0 && iR1 > 0 && iR1 !== Infinity) ? vBranches * iR1 : 0;
+            let pR2 = (vBranches > 0 && iR2 > 0 && iR2 !== Infinity) ? vBranches * iR2 : 0;
+            let pR3 = (vBranches > 0 && iR3 > 0 && iR3 !== Infinity) ? vBranches * iR3 : 0;
+            return { isFuseBlown: blown, totalResistance: rT, totalCurrent: current, voltageAcrossBranches: vBranches, iR1, iR2, iR3, totalPower: pTotal, powerR1: pR1, powerR2: pR2, powerR3: pR3 };
+        }
+
+        // --- Update Readout Functions ---
+        function updateReadouts(type, results) {
+            const fuseDisplay = getElement(`${type}_fuseStatusDisplay`);
+            if (fuseDisplay) { fuseDisplay.textContent = results.isFuseBlown ? "BLOWN!" : "OK"; fuseDisplay.className = results.isFuseBlown ? 'readout-value fuse-status-blown' : 'readout-value fuse-status-ok'; }
+            getElement(`${type}_liveTotalResistance`).textContent = formatValue(results.totalResistance, 2, '\u03A9');
+            getElement(`${type}_liveTotalCurrent`).textContent = formatValue(results.totalCurrent, 3, 'A');
+            getElement(`${type}_liveTotalPower`).textContent = formatValue(results.totalPower, 2, 'W');
+            if (type === CircuitType.SIMPLE) { getElement(`${type}_liveVoltageDropR1`).textContent = formatValue(results.vDropR1, 2, 'V'); getElement(`${type}_livePowerR1`).textContent = formatValue(results.powerR1, 2, 'W'); }
+            else if (type === CircuitType.SERIES) { getElement(`${type}_liveVoltageDropR1`).textContent = formatValue(results.vDropR1, 2, 'V'); getElement(`${type}_liveVoltageDropR2`).textContent = formatValue(results.vDropR2, 2, 'V'); getElement(`${type}_liveVoltageDropR3`).textContent = formatValue(results.vDropR3, 2, 'V'); getElement(`${type}_liveVoltagePointA`).textContent = formatValue(results.vPointA, 2, 'V'); getElement(`${type}_liveVoltagePointB`).textContent = formatValue(results.vPointB, 2, 'V'); getElement(`${type}_liveVoltagePointC`).textContent = formatValue(results.vPointC, 2, 'V'); getElement(`${type}_liveVoltagePointD`).textContent = formatValue(results.vPointD, 2, 'V'); getElement(`${type}_liveVoltagePointE`).textContent = formatValue(results.vPointE, 2, 'V'); getElement(`${type}_liveVoltagePointF`).textContent = formatValue(results.vPointF, 2, 'V'); }
+            else if (type === CircuitType.PARALLEL) { getElement(`${type}_liveVoltageAcrossBranches`).textContent = formatValue(results.voltageAcrossBranches, 2, 'V'); getElement(`${type}_liveCurrentR1`).textContent = formatValue(results.iR1, 3, 'A'); getElement(`${type}_liveCurrentR2`).textContent = formatValue(results.iR2, 3, 'A'); getElement(`${type}_liveCurrentR3`).textContent = formatValue(results.iR3, 3, 'A'); getElement(`${type}_livePowerR1`).textContent = formatValue(results.powerR1, 2, 'W'); getElement(`${type}_livePowerR2`).textContent = formatValue(results.powerR2, 2, 'W'); getElement(`${type}_livePowerR3`).textContent = formatValue(results.powerR3, 2, 'W'); }
+         }
+
+
+        // --- Event Listener Setup ---
+        function setupEventListeners() {
+            Object.entries(circuitSelectorButtons).forEach(([type, button]) => {
+                button.addEventListener('click', () => switchCircuitType(type));
+            });
+
+            const setupControlLink = (type, controlName, stateKey, isFloat = false, minVal = 0.1) => {
+                const slider = getElement(`${type}_${controlName}Slider`); const input = getElement(`${type}_${controlName}Input`); if (!slider || !input) return;
+                slider.addEventListener('input', (event) => { let val = parseFloat(event.target.value); if (stateKey.startsWith('r') && val <= 0) val = minVal; state[type][stateKey] = val; input.value = isFloat ? val.toFixed(1) : val.toFixed(0); updateValues(); });
+                input.addEventListener('input', (event) => { let val = parseFloat(event.target.value); if (isNaN(val)) return; val = Math.max(parseFloat(slider.min), Math.min(parseFloat(slider.max), val)); if (stateKey.startsWith('r') && val <= 0) val = minVal; state[type][stateKey] = val; slider.value = val; event.target.value = isFloat ? val.toFixed(1) : val.toFixed(0); updateValues(); });
+            };
+
+            [CircuitType.SIMPLE, CircuitType.SERIES, CircuitType.PARALLEL].forEach(type => {
+                setupControlLink(type, 'voltage', 'voltage', true);
+                setupControlLink(type, 'fuseRating', 'fuseRating', true);
+                if (type === CircuitType.SIMPLE) { setupControlLink(type, 'resistance', 'r1', false); }
+                else { setupControlLink(type, 'resistance1', 'r1', false); setupControlLink(type, 'resistance2', 'r2', false); setupControlLink(type, 'resistance3', 'r3', false); }
+
+                const switchButton = getElement(`${type}_switchToggleButton`);
+                const resetButton = getElement(`${type}_resetButton`);
+                const switchSvgGroup = getElement(`${type}_switchComponentSvg`);
+
+                if (switchButton) { switchButton.addEventListener('click', () => { state[type].switchClosed = !state[type].switchClosed; updateValues(); }); }
+                if (resetButton) { resetButton.addEventListener('click', resetToDefaults); }
+                if (switchSvgGroup) { switchSvgGroup.addEventListener('click', () => { state[type].switchClosed = !state[type].switchClosed; updateValues(); }); }
+            });
+        }
+
+        // --- Initial Setup ---
+        function initializeSimulation() {
+            setupEventListeners();
+            switchCircuitType(CircuitType.SIMPLE);
+        }
+
+        window.onload = initializeSimulation;
+
+    </script>
+</body>
+</html>
