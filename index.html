@@ -498,7 +498,7 @@
         };
 
         // --- State Variables ---
-        let currentCircuitType = CircuitType.SIMPLE;
+        let currentCircuitType = null; // FIX: Initialize as null to force the first switch
         let state = {
             [CircuitType.SIMPLE]: { ...defaults[CircuitType.SIMPLE] },
             [CircuitType.SERIES]: { ...defaults[CircuitType.SERIES] },
